@@ -32,7 +32,34 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-
+	// Send an RPC to the coordinator asking for a task.
+	// Then modify the worker to read that file and call the application Map function or the application Reduce function, as in mrsequential.go.
+	for {
+		req := &TaskRequest{}	
+		resp := &TaskResponse{}
+		if call("Coordinator.GetTask", req, resp) == true {
+			switch resp.ErrCode {
+				case ErrWait:
+					// sleep waiting
+					time.Sleep(time.Second)
+					continue
+				case ErrAllDone:
+					// All job done, this worker can be closed	
+					break
+				case ErrSuccess:
+					// Do Map or reduce
+					switch resp.Task.TaskType {
+						case TypeMap:
+							DoMap(resp.Task, mapf)
+						case TypeReduce:
+							DoReduce(resp.Task, reducef)
+					}
+			}	
+		} else {
+			// rpc call failed, coordinator is closed, meaning job finished.
+			break;	
+		}
+	}
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
 
