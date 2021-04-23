@@ -37,17 +37,20 @@ func Worker(mapf func(string, string) []KeyValue,
 	for {
 		req := &TaskRequest{}	
 		resp := &TaskResponse{}
+		// connect to coordinator, and call GetTask function to get a task	
 		if call("Coordinator.GetTask", req, resp) == true {
 			switch resp.ErrCode {
 				case ErrWait:
-					// sleep waiting
+					// workers will sometimes need to wait, e.g. reduces can't start until the last map has finished. 
+                                        // one possibility is for workers to periodically ask the coordinator for work, 
+                                        // sleeping with time.Sleep() between each request.
 					time.Sleep(time.Second)
 					continue
 				case ErrAllDone:
-					// All job done, this worker can be closed	
+					// all job done, this worker can be closed	
 					break
 				case ErrSuccess:
-					// Do Map or reduce
+					// do Map or reduce
 					switch resp.Task.TaskType {
 						case TypeMap:
 							DoMap(resp.Task, mapf)
@@ -56,7 +59,7 @@ func Worker(mapf func(string, string) []KeyValue,
 					}
 			}	
 		} else {
-			// rpc call failed, coordinator is closed, meaning job finished.
+			// failed to contact the coordinator, it can assume that the coordinator has exited because the job is done.	
 			break;	
 		}
 	}

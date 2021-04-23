@@ -23,6 +23,36 @@ type ExampleReply struct {
 }
 
 // Add your RPC definitions here.
+// errcode of TaskResponse
+const (
+        ErrSuccess = iota
+        ErrWait 
+        ErrAllDone
+)
+// type of task.TaskType
+const (
+        TypeMap = iota + 1
+        TypeReduce
+)
+// status of task
+const (
+        StatusReady = iota + 1
+        StatusSent 
+        StatusFinish
+)
+type Task struct {
+        TaskId   int32
+        TaskType int32
+        Content  string // map task =>file_name, reduce task => reduce number
+        Status   int32
+}
+type TaskRequest struct {
+
+}
+type TaskResponse struct {
+        ErrCode int32
+        Task 	Task
+}
 
 
 // Cook up a unique-ish UNIX-domain socket name
