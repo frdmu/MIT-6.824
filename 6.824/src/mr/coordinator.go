@@ -5,15 +5,29 @@ import "net"
 import "os"
 import "net/rpc"
 import "net/http"
+import "sync"
 
-
+// status of Coordinator
+const (
+	MapPeroid = iota + 1
+	ReducePeroid
+	AllDone
+)
 type Coordinator struct {
 	// Your definitions here.
-
+	taskQueue []*Task
+	index	  int32
+	mu	  sync.Mutex // the coordinator, as an RPC server, will be concurrent; don't forget to lock shared data. 
+	status	  int32
+	nReduce	  int32
 }
 
 // Your code here -- RPC handlers for the worker to call.
+func (c *Coordinator) GetTask(req *TaskRequest, resp *TaskResponse) error {
+	// do
 
+	return nil
+}
 //
 // an example RPC handler.
 //
@@ -24,7 +38,20 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
-
+// load all map tasks to c.taskQueue 
+func loadMapTask(c *Coordinator,filenames []string) {
+	c.taskQueue = make([]*Task, 0)
+	c.index = 0	
+	n := len(filenames)	
+	for i := 0; i < n; i++ {
+		c.taskQueue = append(c.taskQueue, &Task{
+			TaskId:    int32(i)
+			TaskType:  TypeMap
+			Content:   filenames[i]
+			Status:	   StatusReady
+		})	
+	}
+}
 //
 // start a thread that listens for RPCs from worker.go
 //
@@ -60,10 +87,13 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
+	c := Coordinator{
+		status: MapPeroid
+		nReduce: int32(nReduce)
+	}
 
 	// Your code here.
-
+	loadMapTasks(&c, files)
 
 	c.server()
 	return &c
