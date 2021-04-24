@@ -5,7 +5,7 @@ import "log"
 import "net/rpc"
 import "hash/fnv"
 import "time"
-
+import "encoding/json"
 //
 // Map functions return a slice of KeyValue.
 //
@@ -73,6 +73,46 @@ func Worker(mapf func(string, string) []KeyValue,
 
 }
 
+// store {"key", "1"} in "mr-map-*" file
+func DoMap(task Task, mapf func(string, string) []KeyValue) {
+	// 1.map 
+	filename := task.Content	
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("[DoMap]cannot open %v", filename)
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("[DoMap]cannot read %v", filename)
+	}
+	file.Close()
+	kva := mapf(filename, string(content))
+
+	// 2.create a temp file, and rename it after all written finished	
+	oname := fmt.Sprintf("mr-map-%v", task.TaskId)	
+	tmpFile, err := ioutil.TempFile(".", "temp-"+ oname)
+	if err != nil {
+		log.Fatal(err)	
+	}	
+	// to write key/value pairs to a JSON file
+	enc := json.NewEncoder(tmpfile)
+  	for _, kv := kva {
+    		if err := enc.Encode(&kv) != nil {
+			log.Fatalf("[DoMap]encode save json err=%v\n", err)	
+		}
+	}
+	if err := tmpfile.Close() != nil {
+		log.Fatal(err)	
+	}
+	os.Rename(tmpfile.Name(), oname)
+
+	//3. notify coordinator that this task is done
+	NotifyCoordinator(task.TaskId, task.TaskType)
+}
+
+func DoReduce(task Task, reducef func(string, []string) string) {
+
+}
 //
 // example function to show how to make an RPC call to the coordinator.
 //
