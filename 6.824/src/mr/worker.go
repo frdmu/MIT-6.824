@@ -41,9 +41,14 @@ func Worker(mapf func(string, string) []KeyValue,
 		if call("Coordinator.GetTask", req, resp) == true {
 			switch resp.ErrCode {
 				case ErrWait:
-					// workers will sometimes need to wait, e.g. reduces can't start until the last map has finished. 
-                                        // one possibility is for workers to periodically ask the coordinator for work, 
+					// workers will sometimes need to wait, 
+					
+					// e.g. reduces can't start until the last map has finished. 
+                                        // one possibility is for workers to periodically ask the coordinator for work,
                                         // sleeping with time.Sleep() between each request.
+					
+					// another case: e.g. after all map tasks done, in GetTask we transform map step to reduce step,
+					// but don't get a task.
 					time.Sleep(time.Second)
 					continue
 				case ErrAllDone:
