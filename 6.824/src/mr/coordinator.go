@@ -66,13 +66,21 @@ func (c *Coordinator) GetTask(req *TaskRequest, resp *TaskResponse) error {
 		resp.Errcode = ErrWait
 		return nil
 	case ReducePeroid:
+		// all reduce tasks done	
 		// end coordinator	
 		c.status = AllDone			
 		// end worker	
 		resp.ErrCode = ErrAllCode
 		return nil
 	}
-	
+}
+// Notify by worker about which task is done
+func (c *Coordinator) Notify(req *NotifyRequest, resp *NotifyResponse) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.taskQueue[req.TaskId].Status = StatusFinish		
+	return nil
 }
 //
 // an example RPC handler.

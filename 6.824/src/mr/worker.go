@@ -113,6 +113,16 @@ func DoMap(task Task, mapf func(string, string) []KeyValue) {
 func DoReduce(task Task, reducef func(string, []string) string) {
 
 }
+// send Notify to coordinator, to tell coordinator that this task is finished
+func NotifyCoordinator(taskId int32, taskType int32) {
+	req := &NotifyRequest{
+		TaskId: taskId
+		TaskType: taskType
+	}
+	resp := &NotifyResponse{}
+	call("Coordinator.Notify", req, resp)
+}
+
 //
 // example function to show how to make an RPC call to the coordinator.
 //
