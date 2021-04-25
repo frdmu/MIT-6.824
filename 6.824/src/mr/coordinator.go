@@ -28,7 +28,11 @@ type Coordinator struct {
 func (c *Coordinator) GetTask(req *TaskRequest, resp *TaskResponse) error {
 	c.mu.Lock() 
 	defer c.mu.Unlock()
-
+	
+	if c.status == AllDone {
+		resp.ErrCode = ErrAllDone	
+		return nil	
+	}
 	// traverse c.taskQueue, and find a task	
 	hasWaiting := false
 	n := len(c.taskQueue)
@@ -99,8 +103,8 @@ func checkTask(c *Coordinator, taskId int32, taskType int32) {
 func (c *Coordinator) Notify(req *NotifyRequest, resp *NotifyResponse) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	c.taskQueue[req.TaskId].Status = StatusFinish		
+	
+	c.taskQueue[req.TaskId].Status = StatusFinish
 	return nil
 }
 //
@@ -166,6 +170,8 @@ func (c *Coordinator) Done() bool {
 	ret := false 
 
 	// Your code here.
+	c.mu.Lock()
+	defer c.mu.Unlock()	
 	if c.status == AllDone {
 		ret = true	
 	}		
