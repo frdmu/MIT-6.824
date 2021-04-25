@@ -110,8 +110,57 @@ func DoMap(task Task, mapf func(string, string) []KeyValue) {
 	NotifyCoordinator(task.TaskId, task.TaskType)
 }
 
+// read all "mr-map-*" files, do reduce for keys that satisfy ihash(key)%reduce == taskId,
+// and store result in "mr-out-taskId"
 func DoReduce(task Task, reducef func(string, []string) string) {
+	// read all "mr-map-*" files
+	// add keys that satisfy ihash(key)%reduce == taskId in intermediate space kva
+	var kva []KeyValue	
+	files, err := ioutil.ReadDir(".")	
+	for _, file := range files {
+		matched, _ := regexp.Match(`^mr-map-*`, file.Name())	
+		if !matched {
+			continue	
+		}
+		filename := file.Name()
+		file, err := os.Open(filename)
+		
+		nReduce, _ := strconv.Atoi(task.Content)	
+		dec := json.NewDecoder(file)
+		for {
+		    var kv KeyValue
+		    if err := dec.Decode(&kv); err != nil {
+		      break
+		    }
+		    if ihash(kv.Key)%nReduce == int(task.TaskId) {
+		    	kva = append(kva, kv)
+		    }
+		}
+	}
 
+	// do reduce just like in main/mrsequential.go
+	sort.Sort(ByKey(kva))
+	oname := fmt.Sprint("mr-out-%d", task.TaskId)
+	tmpfile, _ := ioutil.TempFile(".", oname)
+	i := 0
+	for i < len(kva) {
+		j := i + 1
+		for j < len(kva) && kva[j].Key == kva[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, kva[k].Value)
+		}
+		output := reducef(kva[i].Key, values)
+
+		fmt.Fprintf(tmpfile, "%v %v\n", kva[i].Key, output)
+
+		i = j
+	}
+	tmpfile.Close()	
+	os.Rename(tmpfile.Name(), oname)
+	NotifyCoordinator(task.TaskId, task.TaskType)
 }
 // send Notify to coordinator, to tell coordinator that this task is finished
 func NotifyCoordinator(taskId int32, taskType int32) {
