@@ -6,6 +6,11 @@ import "net/rpc"
 import "hash/fnv"
 import "time"
 import "encoding/json"
+import "os"
+import "io/ioutil"
+import "sort"
+import "regexp"
+import "strconv"
 //
 // Map functions return a slice of KeyValue.
 //
@@ -13,6 +18,12 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key
+type ByKey []KeyValue
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -31,106 +42,79 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
-	// Send an RPC to the coordinator asking for a task.
-	// Then modify the worker to read that file and call the application Map function or the application Reduce function, as in mrsequential.go.
+	// Send an RPC(remote pecedure call) to the coordinator asking for a task.
 	for {
 		req := &TaskRequest{}	
 		resp := &TaskResponse{}
-		// connect to coordinator, and call GetTask function to get a task	
 		if call("Coordinator.GetTask", req, resp) == true {
 			switch resp.ErrCode {
 				case ErrWait:
-					// workers will sometimes need to wait, 
-					
-					// e.g. reduces can't start until the last map has finished. 
-                                        // one possibility is for workers to periodically ask the coordinator for work,
-                                        // sleeping with time.Sleep() between each request.
-					
-					// another case: e.g. after all map tasks done, in GetTask we transform map step to reduce step,
-					// but don't get a task.
-					time.Sleep(time.Second)
+					time.Sleep(1 * time.Second)
 					continue
 				case ErrAllDone:
-					// all job done, this worker can be closed	
 					break
 				case ErrSuccess:
-					// do Map or reduce
 					switch resp.Task.TaskType {
-						case TypeMap:
-							DoMap(resp.Task, mapf)
-						case TypeReduce:
-							DoReduce(resp.Task, reducef)
+					case TypeMap:
+						DoMap(resp.Task, mapf)
+					case TypeReduce:
+						DoReduce(resp.Task, reducef)
 					}
 			}	
 		} else {
-			// failed to contact the coordinator, it can assume that the coordinator has exited because the job is done.	
-			break;	
+			break	
 		}
 	}
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
-
 }
 
-// store {"key", "1"} in "mr-map-*" file
+// store kv just like {"key", "1"} in "mr-map-*" file
 func DoMap(task Task, mapf func(string, string) []KeyValue) {
 	// 1.map 
 	filename := task.Content	
-	file, err := os.Open(filename)
-	if err != nil {
-		log.Fatalf("[DoMap]cannot open %v", filename)
-	}
-	content, err := ioutil.ReadAll(file)
-	if err != nil {
-		log.Fatalf("[DoMap]cannot read %v", filename)
-	}
+	file, _ := os.Open(filename)
+	content, _ := ioutil.ReadAll(file)
 	file.Close()
 	kva := mapf(filename, string(content))
 
 	// 2.create a temp file, and rename it after all written finished	
 	oname := fmt.Sprintf("mr-map-%v", task.TaskId)	
-	tmpFile, err := ioutil.TempFile(".", "temp-"+ oname)
-	if err != nil {
-		log.Fatal(err)	
-	}	
-	// to write key/value pairs to a JSON file
+	tmpfile, _ := ioutil.TempFile(".", "temp-"+ oname)
+	
 	enc := json.NewEncoder(tmpfile)
-  	for _, kv := kva {
-    		if err := enc.Encode(&kv) != nil {
+  	for _, kv := range kva {
+    		if err := enc.Encode(&kv); err != nil {
 			log.Fatalf("[DoMap]encode save json err=%v\n", err)	
 		}
 	}
-	if err := tmpfile.Close() != nil {
-		log.Fatal(err)	
-	}
+	tmpfile.Close()
 	os.Rename(tmpfile.Name(), oname)
 
-	//3. notify coordinator that this task is done
+	// 3.notify coordinator this task is done
 	NotifyCoordinator(task.TaskId, task.TaskType)
 }
 
-// read all "mr-map-*" files, do reduce for keys that satisfy ihash(key)%reduce == taskId,
+// read all "mr-map-*" files 
+// do reduce for keys that satisfy ihash(key)%reduce == taskId,
 // and store result in "mr-out-taskId"
 func DoReduce(task Task, reducef func(string, []string) string) {
-	// read all "mr-map-*" files
+	// 1.read all "mr-map-*" files
 	// add keys that satisfy ihash(key)%reduce == taskId in intermediate space kva
 	var kva []KeyValue	
-	files, err := ioutil.ReadDir(".")	
+	files, _ := ioutil.ReadDir(".")	
 	for _, file := range files {
-		matched, _ := regexp.Match(`^mr-map-*`, file.Name())	
+		matched, _ := regexp.Match(`^mr-map-*`, []byte(file.Name()))	
 		if !matched {
 			continue	
 		}
 		filename := file.Name()
-		file, err := os.Open(filename)
+		file, _ := os.Open(filename)
 		
 		nReduce, _ := strconv.Atoi(task.Content)	
 		dec := json.NewDecoder(file)
 		for {
 		    var kv KeyValue
 		    if err := dec.Decode(&kv); err != nil {
-		      break
+		    	break
 		    }
 		    if ihash(kv.Key)%nReduce == int(task.TaskId) {
 		    	kva = append(kva, kv)
@@ -140,8 +124,8 @@ func DoReduce(task Task, reducef func(string, []string) string) {
 
 	// do reduce just like in main/mrsequential.go
 	sort.Sort(ByKey(kva))
-	oname := fmt.Sprint("mr-out-%d", task.TaskId)
-	tmpfile, _ := ioutil.TempFile(".", oname)
+	oname := fmt.Sprintf("mr-out-%v", task.TaskId)
+	tmpfile, _ := ioutil.TempFile(".", "temp-" + oname)
 	i := 0
 	for i < len(kva) {
 		j := i + 1
@@ -165,8 +149,8 @@ func DoReduce(task Task, reducef func(string, []string) string) {
 // send Notify to coordinator, to tell coordinator that this task is finished
 func NotifyCoordinator(taskId int32, taskType int32) {
 	req := &NotifyRequest{
-		TaskId: taskId
-		TaskType: taskType
+		TaskId: taskId,
+		TaskType: taskType,
 	}
 	resp := &NotifyResponse{}
 	call("Coordinator.Notify", req, resp)

@@ -6,7 +6,9 @@ import "os"
 import "net/rpc"
 import "net/http"
 import "sync"
-
+import "fmt"
+import "time"
+const WorkerDieTime = 10 * time.Second
 // status of Coordinator
 const (
 	MapPeroid = iota + 1
@@ -16,7 +18,7 @@ const (
 type Coordinator struct {
 	// Your definitions here.
 	taskQueue []*Task
-	index	  int32	     // curent free task
+	index	  int	     // curent free task
 	mu	  sync.Mutex // the coordinator, as an RPC server, will be concurrent; don't forget to lock shared data. 
 	status	  int32
 	nReduce	  int32
@@ -24,13 +26,10 @@ type Coordinator struct {
 
 // Your code here -- RPC handlers for the worker to call.
 func (c *Coordinator) GetTask(req *TaskRequest, resp *TaskResponse) error {
-	// maybe there are many workers(you can see a worker as a goroutine) connect to coordinator ask for tasks,
-	// so need to add lock.	
-	// Lock() locks c. If the lock is already in use, the calling goroutine(worker) blocks until the mutex is available.
 	c.mu.Lock() 
-	defer.c.mu.Unlock()
-	
-	// traverse c.taskQueue, and ask for a task	
+	defer c.mu.Unlock()
+
+	// traverse c.taskQueue, and find a task	
 	hasWaiting := false
 	n := len(c.taskQueue)
 	for i := 0; i < n; i++ {
@@ -39,14 +38,14 @@ func (c *Coordinator) GetTask(req *TaskRequest, resp *TaskResponse) error {
 		
 		// ask for task successfully
 		if t.Status == StatusReady {
-			t.Status == StatusSent	
+			t.Status = StatusSent	
 			resp.Task = *t
-			
 			resp.ErrCode = ErrSuccess
-
+			go checkTask(c, t.TaskId, t.TaskType)	
 			return nil
 		} else if t.Status == StatusSent {
-			hasWaitring = true	
+			// some tasks has not finished
+			hasWaiting = true	
 		}
 	}
 
@@ -57,23 +56,45 @@ func (c *Coordinator) GetTask(req *TaskRequest, resp *TaskResponse) error {
 		return nil
 	}
 
-	// finish all map tasks during mapperoid or reduce tasks during reduceperoid
+	// finish all map tasks during mapperoid 
+	// or reduce tasks during reduceperoid
 	switch c.status {
 	case MapPeroid:
-		// all map tasks done, transform to reduce step
 		c.status = ReducePeroid
-		loadReduceTask(c)
-		resp.Errcode = ErrWait
+		loadReduceTasks(c)
+		resp.ErrCode = ErrWait
 		return nil
 	case ReducePeroid:
-		// all reduce tasks done	
 		// end coordinator	
 		c.status = AllDone			
 		// end worker	
-		resp.ErrCode = ErrAllCode
+		resp.ErrCode = ErrAllDone
 		return nil
 	}
+	return nil
 }
+
+// check one task is finished or not after it given out 10 seconds.
+// if Not finished, meaning that worker might creshed. Reset the task.Status to Ready, so that it can be given out again.
+func checkTask(c *Coordinator, taskId int32, taskType int32) {
+	time.Sleep(WorkerDieTime)
+	//log.Printf("[checkTask] taskId=%v, taskType=%v", taskId, taskType)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.taskQueue[taskId].TaskType != taskType {
+		//log.Println("Too old taskType, ignore")
+		// this means we are already at reduce-period, and this func try to check one of the map-tasks.
+		// since we can get into reduce-period, which means map-tasks all done.
+		// so just ignore it.
+		return
+	}
+	if c.taskQueue[taskId].Status == StatusSent {
+		//log.Printf("put taskId=%v back", taskId)
+		c.taskQueue[taskId].Status = StatusReady
+	}
+}
+
 // Notify by worker about which task is done
 func (c *Coordinator) Notify(req *NotifyRequest, resp *NotifyResponse) error {
 	c.mu.Lock()
@@ -93,19 +114,34 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 }
 
 // load all map tasks to c.taskQueue 
-func loadMapTask(c *Coordinator,filenames []string) {
+func loadMapTasks(c *Coordinator,filenames []string) {
 	c.taskQueue = make([]*Task, 0)
 	c.index = 0	
 	n := len(filenames)	
 	for i := 0; i < n; i++ {
 		c.taskQueue = append(c.taskQueue, &Task{
-			TaskId:    int32(i)
-			TaskType:  TypeMap
-			Content:   filenames[i]
-			Status:	   StatusReady
+			TaskId:    int32(i),
+			TaskType:  TypeMap,
+			Content:   filenames[i],
+			Status:	   StatusReady,
 		})	
 	}
 }
+
+// load all reduce tasks to c.taskQueue 
+func loadReduceTasks(c *Coordinator) {
+	c.taskQueue = make([]*Task, 0)
+	c.index = 0	
+	for i := 0; int32(i) < c.nReduce; i++ {
+		c.taskQueue = append(c.taskQueue, &Task{
+			TaskId:    int32(i),
+			TaskType:  TypeReduce,
+			Content:   fmt.Sprint(c.nReduce),
+			Status:	   StatusReady,
+		})	
+	}
+}
+
 //
 // start a thread that listens for RPCs from worker.go
 //
@@ -127,10 +163,12 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := true 
+	ret := false 
 
 	// Your code here.
-
+	if c.status == AllDone {
+		ret = true	
+	}		
 
 	return ret
 }
@@ -142,8 +180,8 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
-		status: MapPeroid
-		nReduce: int32(nReduce)
+		status: MapPeroid,
+		nReduce: int32(nReduce),
 	}
 
 	// Your code here.
