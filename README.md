@@ -5,7 +5,7 @@
 - https://github.com/JellyZhang/mit-6.824-2021
 - https://github.com/Wangzhike/MIT6.824_DistributedSystem
 
-## Lab1: MapReduce
+## Lab1: MapReduce Done
 In the main directory, run the coordinator. 
 ```
 $ go build -race -buildmode=plugin ../mrapps/wc.go
