@@ -28,5 +28,5 @@ We supply you with a test script in main/test-mr.sh. The tests check that the wc
 ```
 $ bash test-mr.sh
 ```
-
-
+## Lab2: Raft
+ - [Lab2A_Leader-Election](https://frdmu.github.io/2021/06/Lab2A/)
